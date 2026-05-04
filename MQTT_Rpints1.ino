@@ -1,53 +1,73 @@
 /*
 NodeMCU (ESP8266)
-Dual YF-S201 Style Flow Meters and DS18B20 OneWire
+Dual YF-S201 Style Flow Meters, DS18B20 OneWire, and MFRC522 RFID
 MQTT Integration with RaspberryPints
 Special Thanks to Homebrewtalk.com Members RandR+ and Thorrak who made this sketch possible!
 This sketch is brought to you by coders like them!
+**WARNING** This sketch attaches the RFID RST Pin to D3 (GPIO0) Which is the FLASH Pin
+DO NOT HAVE the RFID RST connected to D3 when flashing this sketch (it WILL NOT Flash)
+When uploading the sketch has been completed, you can attach the RST to D3.
+This is not an issue during Boot, Only when Flashing! **WARNING**
 */
 
 #include <PubSubClient.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
+#include <MFRC522.h>
+#include <SPI.h>
 #include <ESP8266WiFi.h>
 #include <time.h>
 
-
-void setup_wifi(); // Add this line at the top
-void ICACHE_RAM_ATTR pulseCounter1(); // Add this line at the top
-void ICACHE_RAM_ATTR pulseCounter2(); // Add this line at the top
-void callback(char* topic, byte* payload, unsigned int length); // Add this line at the top
-void reconnect(); // Add this line at the top
-void pulseCounter1(); // Add this line at the top
-void pulseCounter2(); // Add this line at the top
-const char* mqtt_topic = "rpints/pours"; // Add this line at the top
-void sendTemp(float temp, const char* probe, const char* unit, const char* timestamp); // Add this line at the top
-char* getTimestamp(); // Add this line at the top
+void setup_wifi();                                                                      // Add this line at the top
+void ICACHE_RAM_ATTR pulseCounter1();                                                   // Add this line at the top
+void ICACHE_RAM_ATTR pulseCounter2();                                                   // Add this line at the top
+void callback(char* topic, byte* payload, unsigned int length);                         // Add this line at the top
+void reconnect();                                                                       // Add this line at the top
+void pulseCounter1();                                                                   // Add this line at the top
+void pulseCounter2();                                                                   // Add this line at the top
+const char* mqtt_topic = "rpints/pours";                                                // Add this line at the top
+void sendTemp(float temp, const char* probe, const char* unit, const char* timestamp);  // Add this line at the top
+char* getTimestamp();                                                                   // Add this line at the top
+void RFIDCardAction(char* RFIDTag);                                                     // Add this line at the top
+void RFIDCheckFunction();                                                               // Add this line at the top
 
 // WiFi Settings
-***REMOVED*** = "SSID";
-***REMOVED*** = "SSID PW";
+***REMOVED*** = "[REDACTED]"; 
+***REMOVED*** = "{REDACTED]";
 
 // MQTT Settings
-***REMOVED*** = "raspberrypints.local";  //If your RaspberryPints has a static IP, you can use the IP address.
+***REMOVED*** = "[REDACTED]";  // If your RaspberryPints has a static IP, you can use the IP address.
 const int mqtt_port = 1883;
-const char* mqtt_user = "RaspberryPints";  //If you change the MQTT user name, make sure you add that name here.
-const char* mqtt_pass = "MQTT Broker PW";
+const char* mqtt_user = "RaspberryPints";   // If you change the MQTT user name, make sure you add that name here.
+const char* mqtt_pass = "RaspberryPints";
+
+// RFID Settings
+#define SS_PIN D8
+#define RST_PIN D3
+unsigned long lastRfidCheckTime = 0;
+unsigned int rfidCheckDelay = 250;
+unsigned long lastRfidReadTime;
+char RFIDTag[16];
+bool tagIsActive = false;
+bool messagePrinted = false;
+MFRC522 mfrc522(SS_PIN, RST_PIN);
 
 // Flow Sensor 1
-const int flowPin1 = D2; // Avoid using D3, D4, and D8
+const int flowPin1 = D1;   // Avoid using D0
 const int tapNumber1 = 4;  // Change for each tap. If running an Arduino through Serial or USB in conjunction with MQTT, Do not make this a pin number already used.
 volatile unsigned long pulseCount1 = 0;
 
 // Flow Sensor 2
-const int flowPin2 = D5;  // Avoid using D3. D4, and D8
+const int flowPin2 = D2;   // Avoid using D0
 const int tapNumber2 = 6;  // Change for each tap. If running an Arduino through Serial or USB in conjunction with MQTT, Do not make this a pin number already used.
 volatile unsigned long pulseCount2 = 0;
 
 // Pour tracking
-const unsigned long POUR_TIMEOUT = 2000;   // ms of no flow before pour is considered done
-const unsigned long CHECK_INTERVAL = 100;  // how often to check for flow activity
-const unsigned long MIN_POUR_PULSES = 5;   // minimum pulses to count as a real pour (noise filter)
+const unsigned long POUR_TIMEOUT = 2000;    // ms of no flow before pour is considered done
+const unsigned long CHECK_INTERVAL = 100;   // how often to check for flow activity
+const unsigned long MIN_POUR_PULSES = 15;   // minimum pulses to count as a real pour (noise filter)
+bool isNoTag = (strlen(RFIDTag) == 0 || RFIDTag[0] == ' ' || strcmp(RFIDTag, "0") == 0);
+const char* tagIDStatus = isNoTag ? "-1" : "";
 
 bool pouring1 = false;
 unsigned long pourPulses1 = 0;
@@ -60,7 +80,7 @@ unsigned long lastPulseTime2 = 0;
 unsigned long lastCheckTime = 0;
 
 // OneWire Settings
-#define SENSOR_PIN D7  // The ESP8266 pin connected to DS18B20 sensor's DQ pin
+#define SENSOR_PIN D4                               // The ESP8266 pin connected to DS18B20 sensor's DQ pin
 const char* TZstr = "EST+5EDT,M3.2.0/2,M11.1.0/2";  //read putting TZ offset in configTime is problematic
 
 OneWire oneWire(SENSOR_PIN);
@@ -74,7 +94,7 @@ PubSubClient client(espClient);
 
 static unsigned long tempTime = 0;
 
-char probeName[24] = "Garage"; // Name Probe to your liking
+char probeName[24] = "Garage";
 
 void setup() {
   Serial.begin(115200);
@@ -83,10 +103,16 @@ void setup() {
   client.setServer(mqtt_server, mqtt_port);
   client.setCallback(callback);
 
-  //OneWire
+  // RFID
+  SPI.begin();
+  mfrc522.PCD_Init();
+  Serial.println("RFID Reader Ready");                                 // Init MFRC522 board.
+  
+  // OneWire
   DS18B20.begin();  // initialize the DS18B20 sensor
   configTime(TZstr, "pool.ntp.org", "time.nist.gov"); //POSIX Timezone String to accomodate for daylight savings
 
+  // Flow Meters
   pinMode(flowPin1, INPUT_PULLUP);
   pinMode(flowPin2, INPUT_PULLUP);
 
@@ -95,10 +121,24 @@ void setup() {
 }
 
 void loop() {
+
   if (!client.connected()) {
     reconnect();
   }
   client.loop();
+
+  unsigned long now = millis();
+  if((now - lastRfidCheckTime) > rfidCheckDelay || lastRfidCheckTime == 0){
+    RFIDCheckFunction();
+    lastRfidCheckTime = now;
+  }   
+
+  // Pass the buffer to a function
+  RFIDCardAction(RFIDTag);
+
+  if (strlen(RFIDTag) > 0) {
+      tagIDStatus = "";
+  }
 
   // Check flow activity periodically: accumulate pulses during a pour,
   // then publish the total once flow has stopped for POUR_TIMEOUT ms.
@@ -122,8 +162,22 @@ void loop() {
       }
     } else if (pouring1 && (now - lastPulseTime1 > POUR_TIMEOUT)) {
       if (pourPulses1 >= MIN_POUR_PULSES) {
+
+      // If it's NOT alphanumeric, we assume no valid tag is present.
+      bool isNoTag = true; 
+      if (strlen(RFIDTag) > 0) {
+        if (isAlphaNumeric(RFIDTag[0])) {
+          isNoTag = false;
+        }
+      }
+
+      // Special case: if the tag is just "0", treat as no tag
+      if (strcmp(RFIDTag, "0") == 0) isNoTag = true;
+
+      const char* tagIDStatus = isNoTag ? "-1" : "";
+
         char payload[100];
-        snprintf(payload, sizeof(payload), "P;%d;%d;%lu", -1, tapNumber1, pourPulses1);
+        snprintf(payload, sizeof(payload), "P;%s;%d;%lu;%s", tagIDStatus, tapNumber1, pourPulses1, RFIDTag);
         client.publish("rpints/pours", payload);
         Serial.print("Sent: ");
         Serial.println(payload);
@@ -150,8 +204,22 @@ void loop() {
       }
     } else if (pouring2 && (now - lastPulseTime2 > POUR_TIMEOUT)) {
       if (pourPulses2 >= MIN_POUR_PULSES) {
+
+      // If it's NOT alphanumeric, we assume no valid tag is present.
+      bool isNoTag = true; 
+      if (strlen(RFIDTag) > 0) {
+        if (isAlphaNumeric(RFIDTag[0])) {
+          isNoTag = false;
+        }
+      }
+
+      // Special case: if the tag is just "0", treat as no tag
+      if (strcmp(RFIDTag, "0") == 0) isNoTag = true;
+
+      const char* tagIDStatus = isNoTag ? "-1" : "";
+
         char payload[100];
-        snprintf(payload, sizeof(payload), "P;%d;%d;%lu", -1, tapNumber2, pourPulses2);
+        snprintf(payload, sizeof(payload), "P;%s;%d;%lu;%s", tagIDStatus, tapNumber2, pourPulses2, RFIDTag);
         client.publish("rpints/pours", payload);
         Serial.print("Sent: ");
         Serial.println(payload);
@@ -170,7 +238,7 @@ void loop() {
   }
 
   //OneWire
-    if (millis() - tempTime > 300000) {            // You can change the time in ms to broadcast temp
+    if (millis() - tempTime > 900000) {            // You can change the time in ms to broadcast temp
         DS18B20.requestTemperatures();             // send the command to get temperatures
      
     temperature_C = DS18B20.getTempCByIndex(0);  // read temperature in °C
@@ -207,6 +275,57 @@ void ICACHE_RAM_ATTR pulseCounter1() {
 
 void ICACHE_RAM_ATTR pulseCounter2() {
   pulseCount2++;
+}
+
+// Function to Read RFID Card and create string variable
+void RFIDCheckFunction() {
+	 if ( mfrc522.PICC_IsNewCardPresent() && mfrc522.PICC_ReadCardSerial() ) {
+
+		  // Save the UID on a String variable
+		  String tempRFIDTag = "";
+		  for (byte i = 0; i < mfrc522.uid.size; i++) {
+			tempRFIDTag += String(mfrc522.uid.uidByte[i]);
+		  }
+
+		  // calculate BCC
+		  byte bcc = 0;
+		  for (byte i = 0; i < mfrc522.uid.size; i++) {
+			bcc ^= mfrc522.uid.uidByte[i];
+		}
+		  
+		  if (bcc < 0x10) tempRFIDTag += "0";
+		  tempRFIDTag += String(bcc);
+
+		  tempRFIDTag.toUpperCase();
+      tempRFIDTag.toCharArray(RFIDTag, 16);  // Put into buffer
+
+      tagIsActive = true;
+      messagePrinted = false;
+      lastRfidReadTime = millis();
+
+		  // Halt communication with the card
+		  mfrc522.PICC_HaltA();
+	  }
+}
+
+// Function to print buffer UID and when RFID memory is cleared
+void RFIDCardAction(char* RFIDTag) {
+  if (tagIsActive) {
+    
+    // Check if 30 seconds have passed
+    if (millis() - lastRfidReadTime >= 30000) {
+      memset(RFIDTag, 0, 16);
+      tagIsActive = false;
+      messagePrinted = false;
+      Serial.println("Tag memory cleared.");
+    } 
+    else if (!messagePrinted) {
+      // Optional: Only print this if you want to see the tag while it's active
+      Serial.print("Processing UID Buffer: ");
+      Serial.println(RFIDTag);
+      messagePrinted = true;
+    }
+  }
 }
 
 void reconnect() {
@@ -265,7 +384,6 @@ char* getTimestamp(){
     time(&timer);
     timeinfo = localtime(&timer);
 
-
     strftime(buffer, sizeof(buffer), "%Y-%m-%dT%H:%M:%S", timeinfo);
     return(buffer);
 }
@@ -284,4 +402,3 @@ void sendTemp(float temp, const char* probe, const char* unit, const char* times
 
    client.publish(mqtt_topic, payload);
 }
-
