@@ -32,14 +32,14 @@ void RFIDCardAction(char* RFIDTag);                                             
 void RFIDCheckFunction();                                                               // Add this line at the top
 
 // WiFi Settings
-***REMOVED*** = "[REDACTED]"; 
-***REMOVED*** = "{REDACTED]";
+***REMOVED*** = "SSID"; 
+***REMOVED*** = "SSID_PW";
 
 // MQTT Settings
-***REMOVED*** = "[REDACTED]";  // If your RaspberryPints has a static IP, you can use the IP address.
+***REMOVED*** = "raspberrypints.local";  // If your RaspberryPints has a static IP, you can use the IP address.
 const int mqtt_port = 1883;
 const char* mqtt_user = "RaspberryPints";   // If you change the MQTT user name, make sure you add that name here.
-const char* mqtt_pass = "RaspberryPints";
+const char* mqtt_pass = "MQTT_PW";
 
 // RFID Settings
 #define SS_PIN D8
