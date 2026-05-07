@@ -1,11 +1,9 @@
 /*
-NodeMCU (ESP8266)
+Lolin D32 (ESP32)
 Dual YF-S201 Style Flow Meters, DS18B20 OneWire, and MFRC522 RFID
 MQTT Integration with RaspberryPints
 Special Thanks to Homebrewtalk.com Members RandR+ and Thorrak who made this sketch possible!
 This sketch is brought to you by coders like them!
-OneWire is on D0. Some have reported that D0 and OneWire have compatability issues. Thus far,
-those have not manifested on this sketch.
 */
 
 #include <PubSubClient.h>
@@ -13,13 +11,13 @@ those have not manifested on this sketch.
 #include <DallasTemperature.h>
 #include <MFRC522.h>
 #include <SPI.h>
-#include <ESP8266WiFi.h>
+#include <WiFi.h>   
 #include <time.h>
 
 // Forward Declarations
 void setup_wifi(); 
-void ICACHE_RAM_ATTR pulseCounter1(); 
-void ICACHE_RAM_ATTR pulseCounter2(); 
+void IRAM_ATTR pulseCounter1();
+void IRAM_ATTR pulseCounter2(); 
 void callback(char* topic, byte* payload, unsigned int length); 
 bool checkMQTTConnection(); 
 void RFIDCardAction(char* RFIDTag); 
@@ -32,15 +30,15 @@ const char* ssid = "SSID";
 const char* password = "SSID_PW";
 
 // MQTT Settings
-const char* mqtt_server = "raspberrypints.local";         // If your RaspberryPints has a static IP, you can use the IP address here.
+const char* mqtt_server = "raspberrypints.local";
 const int mqtt_port = 1883;
-const char* mqtt_user = "RaspberryPints";                 // If you change the MQTT Broker User name, make sure you add that name here.
-const char* mqtt_pass = "MQTT_PW";                 		  // Your MQTT Broker PW.
+const char* mqtt_user = "RaspberryPints";
+const char* mqtt_pass = "MQTT_PW";
 const char* mqtt_topic = "rpints/pours"; 
 
-// RFID Settings
-#define SS_PIN D8
-#define RST_PIN D4
+// RFID Settings (Lolin D32 SPI: SCK=18, MISO=19, MOSI=23)
+#define SS_PIN 5
+#define RST_PIN 0
 unsigned long lastRfidCheckTime = 0;
 unsigned int rfidCheckDelay = 250;
 unsigned long lastRfidReadTime;
@@ -49,20 +47,19 @@ bool tagIsActive = false;
 bool messagePrinted = false;
 MFRC522 mfrc522(SS_PIN, RST_PIN);
 
-// Flow Sensor 1
-const int flowPin1 = D1;                 // Avoid using D3
-const int tapNumber1 = 4;                // Change for each tap. If running an Arduino through Serial or USB in conjunction with MQTT, Do not make this a pin number already used.
+// Flow Sensor Pins (Lolin D32)
+const int flowPin1 = 25; 
+const int tapNumber1 = 4; 
 volatile unsigned long pulseCount1 = 0;
 
-// Flow Sensor 2
-const int flowPin2 = D2;                 // Avoid using D3
-const int tapNumber2 = 6;                // Change for each tap. If running an Arduino through Serial or USB in conjunction with MQTT, Do not make this a pin number already used.
+const int flowPin2 = 26; 
+const int tapNumber2 = 6; 
 volatile unsigned long pulseCount2 = 0;
 
 // Pour tracking
-const unsigned long POUR_TIMEOUT = 2000;   // ms of no flow before pour is considered done
-const unsigned long CHECK_INTERVAL = 100;  // how often to check for flow activity
-const unsigned long MIN_POUR_PULSES = 15;  // minimum pulses to count as a real pour (noise filter)
+const unsigned long POUR_TIMEOUT = 2000;
+const unsigned long CHECK_INTERVAL = 100;
+const unsigned long MIN_POUR_PULSES = 15;
 bool pouring1 = false;
 unsigned long pourPulses1 = 0;
 unsigned long lastPulseTime1 = 0;
@@ -72,14 +69,15 @@ unsigned long lastPulseTime2 = 0;
 unsigned long lastCheckTime = 0;
 
 // OneWire Settings
-#define SENSOR_PIN D0                                 // The ESP8266 pin connected to DS18B20 sensor's DQ pin
-const char* TZstr = "EST+5EDT,M3.2.0/2,M11.1.0/2";    // TZ offset set for EST and Daylight SAvings (POSIX Timezone String)
+#define SENSOR_PIN 27 // Safe GPIO for OneWire on D32
+const char* TZstr = "EST+5EDT,M3.2.0/2,M11.1.0/2";
 OneWire oneWire(SENSOR_PIN);
 DallasTemperature DS18B20(&oneWire);
-float temperature_C;                                  // temperature in Celsius
-float temperature_F;                                  // temperature in Fahrenheit
+
+float temperature_C;
+float temperature_F;
 static unsigned long tempTime = 0;
-char probeName[24] = "Garage";                        // Name your Temp Probe to your requirements
+char probeName[24] = "Garage";
 
 WiFiClient espClient;
 PubSubClient client(espClient);
@@ -91,12 +89,14 @@ void setup() {
   client.setCallback(callback);
   
   delay(1000);
-  SPI.begin();
-  mfrc522.PCD_Init();                                         // Initialize MFRC522 Board
+  SPI.begin();           // Uses default pins 18, 19, 23
+  mfrc522.PCD_Init(); 
   Serial.println("RFID Reader Ready"); 
   
-  DS18B20.begin();                                            // Initialize DS18B20 Sensor
-  configTime(TZstr, "pool.ntp.org", "time.nist.gov");         // Get Time with timezone offset
+  DS18B20.begin(); 
+  configTime(0, 0, "pool.ntp.org", "time.nist.gov"); // Standard ESP32 NTP config
+  setenv("TZ", TZstr, 1);
+  tzset();
   
   pinMode(flowPin1, INPUT_PULLUP);
   pinMode(flowPin2, INPUT_PULLUP);
@@ -226,8 +226,8 @@ void setup_wifi() {
   Serial.printf("\nWiFi connected\nIP: %s\n", WiFi.localIP().toString().c_str());
 }
 
-void ICACHE_RAM_ATTR pulseCounter1() { pulseCount1++; }
-void ICACHE_RAM_ATTR pulseCounter2() { pulseCount2++; }
+void IRAM_ATTR pulseCounter1() { pulseCount1++; }
+void IRAM_ATTR pulseCounter2() { pulseCount2++; }
 
 void RFIDCheckFunction() {
   if (mfrc522.PICC_IsNewCardPresent() && mfrc522.PICC_ReadCardSerial()) {
@@ -297,3 +297,4 @@ void sendTemp(float temp, const char* probe, const char* unit, const char* times
   snprintf(payload, sizeof(payload), "T;%s;%.2f;%s;%s", probe, temp, unit, timestamp);
   if(client.connected()) client.publish(mqtt_topic, payload);
 }
+
