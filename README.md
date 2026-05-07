@@ -1,4 +1,4 @@
-# MQTT-2-RPints_GoWithTheFlowMeters_and_DS18B20
+MQTT-2-RPints_ESP8266-All In One
 NodedMCU (ESP8266), MFRC522 RFID, Dual YF-S201 Flow Meters and DS18B20 OneWire MQTT Integration with RaspberryPints
 
 ---
@@ -99,6 +99,6 @@ VIN (DS18B20 VIN) ---->4.7KOhm<----- (DS18B20 Data)
 
 -RFID Information will only be broadcasted in the Flow Meter Payload
 
--30 seconds after scanning the card, RFID information in RFIDTag will be removed from memory
+-45 seconds after scanning the card, RFID information in RFIDTag will be removed from memory
 
 
