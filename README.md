@@ -1,5 +1,5 @@
-# MQTT-2-RPints_GoWithTheFlowMeters_and_DS18B20
-NodedMCU (ESP8266), MFRC522 RFID, Dual YF-S201 Flow Meters and DS18B20 OneWire MQTT Integration with RaspberryPints
+# MQTT-2-RPints_ESP32-All In One
+LolinD32 (ESP32), MFRC522 RFID, Dual YF-S201 Flow Meters and DS18B20 OneWire MQTT Integration with RaspberryPints
 
 ---
 
@@ -9,71 +9,38 @@ https://github.com/Garzlok/RaspberryPints/blob/garzlok_rpi/README.md
 
 ---
 
-This sketch will allow a user of a NodeMCU to attach 1 MFRC522 RFID, 2 YF-5201 Flow Meters, and a DS18B20 OneWire Temperature Sensor and integrate with the RandR+ RaspberryPints branch via MQTT.
+This sketch will allow a user of a Lolin D32 to attach 1 MFRC522 RFID, 2 YF-5201 Flow Meters, and a DS18B20 OneWire Temperature Sensor and integrate with the RandR+ RaspberryPints branch via MQTT.
 
-Current Pin Assignments:
+Component Pin----------------------Lolin D32 Pin---------------------Note
 
-D0 		
+MFRC522 (RFID)3.3V-----------------MFRC522 (RFID)3V3-----------------MFRC522 (RFID)Do NOT use 5V.
 
-D1 (Flow Meter 1)       
+GND--------------------------------GND
 
-D2 (Flow Meter 2)     
+RST--------------------------------GPIO 0
 
-D3 (RFID RST_PIN)     
+SDA (SS)---------------------------GPIO 5
 
-D4 (DS18B20 Data)
+SCK--------------------------------GPIO 18---------------------------Standard SPI Clock.
 
-3V3 (RFID 3v30         
+MISO-------------------------------GPIO 19---------------------------Standard SPI MISO.
 
-GND (RFID GND)           
+MOSI-------------------------------GPIO 23---------------------------Standard SPI MOSI.
 
-D5 (RFID MISO)           
+DS18B20 (Temp)VCC------------------DS18B20 (Temp)3V3-----------------DS18B20 (Temp)
 
-D6 (RFID MOSI)        
+GND--------------------------------GND
 
-D7 (RFID sck)           
+DATA-------------------------------GPIO 27---------------------------Use 4.7kΩ pull-up to 3V3.
 
-D8 (RFID SS_Pin)           
+YF-S201 (Both)Red (VCC)------------YF-S201 (Both)USB (5V)------------YF-S201 (Both) Flow meters need 5V.
 
-RX                         
+YF-S201 (Both)Black (GND)----------YF-S201 (Both)--------------------TF-S201 (Both) Flow Meters need Grounded
 
-TX                      
+YF-S201 (Flow 1) Yellow (SIG)------GPIO 25 YF-S201 (Flow 1)
 
-GND (Flow Meter GND)
+YF-S201 (Flow 2) Yellow (SIG)------GPIO 26 YF-S201 (Flow 2)
 
-3V3 (Flow Meter 3V3)
-
-----
-
-A0
-
-RSV
-
-RSV
-
-SD3
-
-SD2
-
-SD1
-
-CMD
-
-SD0
-
-CLK
-
-GND
-
-3V3
-
-EN
-
-RST
-
-GND (DS18B20 GND)
-
-VIN (DS18B20 VIN) ---->4.7KOhm<----- (DS18B20 Data)
 
 ---
 
@@ -99,6 +66,6 @@ VIN (DS18B20 VIN) ---->4.7KOhm<----- (DS18B20 Data)
 
 -RFID Information will only be broadcasted in the Flow Meter Payload
 
--30 seconds after scanning the card, RFID information in RFIDTag will be removed from memory
+-45 seconds after scanning the card, RFID information in RFIDTag will be removed from memory
 
 
