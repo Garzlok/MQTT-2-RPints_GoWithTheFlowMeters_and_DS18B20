@@ -2,7 +2,7 @@
 NodeMCU (ESP8266)
 Dual YF-S201 Style Flow Meters and DS18B20 OneWire
 MQTT Integration with RaspberryPints
-Special Thanks to Homebrewtalk.com Members RandR+ and Thorrak who made this sketch possible!
+Special Thanks to Homebrewtalk.com Members RandR+ and Thorrak who helped make this sketch possible!
 This sketch is brought to you by coders like them!
 */
 
@@ -12,42 +12,42 @@ This sketch is brought to you by coders like them!
 #include <ESP8266WiFi.h>
 #include <time.h>
 
-
-void setup_wifi(); // Add this line at the top
-void ICACHE_RAM_ATTR pulseCounter1(); // Add this line at the top
-void ICACHE_RAM_ATTR pulseCounter2(); // Add this line at the top
-void callback(char* topic, byte* payload, unsigned int length); // Add this line at the top
-void reconnect(); // Add this line at the top
-void pulseCounter1(); // Add this line at the top
-void pulseCounter2(); // Add this line at the top
-const char* mqtt_topic = "rpints/pours"; // Add this line at the top
-void sendTemp(float temp, const char* probe, const char* unit, const char* timestamp); // Add this line at the top
-char* getTimestamp(); // Add this line at the top
+// Forward Declarations
+void setup_wifi(); 
+void ICACHE_RAM_ATTR pulseCounter1(); 
+void ICACHE_RAM_ATTR pulseCounter2(); 
+void callback(char* topic, byte* payload, unsigned int length); 
+void reconnect(); 
+void pulseCounter1(); 
+void pulseCounter2(); 
+const char* mqtt_topic = "rpints/pours"; 
+void sendTemp(float temp, const char* probe, const char* unit, const char* timestamp); 
+char* getTimestamp(); 
 
 // WiFi Settings
 const char* ssid = "SSID";
 const char* password = "SSID PW";
 
 // MQTT Settings
-const char* mqtt_server = "raspberrypints.local";  //If your RaspberryPints has a static IP, you can use the IP address.
+const char* mqtt_server = "raspberrypints.local";   //If your RaspberryPints has a static IP, you can use the IP address.
 const int mqtt_port = 1883;
-const char* mqtt_user = "RaspberryPints";  //If you change the MQTT user name, make sure you add that name here.
+const char* mqtt_user = "RaspberryPints";           //If you change the MQTT user name, make sure you add that name here.
 const char* mqtt_pass = "MQTT Broker PW";
 
 // Flow Sensor 1
-const int flowPin1 = D2; // Avoid using D3, D4, and D8
-const int tapNumber1 = 4;  // Change for each tap. If running an Arduino through Serial or USB in conjunction with MQTT, Do not make this a pin number already used.
+const int flowPin1 = D2;                    // Avoid using D3, D4, and D8
+const int tapNumber1 = 4;                   // Change for each tap. If running an Arduino through Serial or USB in conjunction with MQTT, Do not make this a pin number already used.
 volatile unsigned long pulseCount1 = 0;
 
 // Flow Sensor 2
-const int flowPin2 = D5;  // Avoid using D3. D4, and D8
-const int tapNumber2 = 6;  // Change for each tap. If running an Arduino through Serial or USB in conjunction with MQTT, Do not make this a pin number already used.
+const int flowPin2 = D5;                    // Avoid using D3. D4, and D8
+const int tapNumber2 = 6;                   // Change for each tap. If running an Arduino through Serial or USB in conjunction with MQTT, Do not make this a pin number already used.
 volatile unsigned long pulseCount2 = 0;
 
 // Pour tracking
-const unsigned long POUR_TIMEOUT = 2000;   // ms of no flow before pour is considered done
-const unsigned long CHECK_INTERVAL = 100;  // how often to check for flow activity
-const unsigned long MIN_POUR_PULSES = 5;   // minimum pulses to count as a real pour (noise filter)
+const unsigned long POUR_TIMEOUT = 2000;    // ms of no flow before pour is considered done
+const unsigned long CHECK_INTERVAL = 100;   // how often to check for flow activity
+const unsigned long MIN_POUR_PULSES = 20;   // minimum pulses to count as a real pour (noise filter)
 
 bool pouring1 = false;
 unsigned long pourPulses1 = 0;
@@ -60,21 +60,18 @@ unsigned long lastPulseTime2 = 0;
 unsigned long lastCheckTime = 0;
 
 // OneWire Settings
-#define SENSOR_PIN D7  // The ESP8266 pin connected to DS18B20 sensor's DQ pin
-const char* TZstr = "EST+5EDT,M3.2.0/2,M11.1.0/2";  //read putting TZ offset in configTime is problematic
-
+#define SENSOR_PIN D7                                 // The ESP8266 pin connected to DS18B20 sensor's DQ pin
+const char* TZstr = "EST+5EDT,M3.2.0/2,M11.1.0/2";    // POSIX EST and Day Light Savings Time Zone
 OneWire oneWire(SENSOR_PIN);
 DallasTemperature DS18B20(&oneWire);
 
-float temperature_C;  // temperature in Celsius
-float temperature_F;  // temperature in Fahrenheit
+float temperature_C;                                  // temperature in Celsius
+float temperature_F;                                  // temperature in Fahrenheit
+static unsigned long tempTime = 0;
+char probeName[24] = "Garage";                        // Name Probe to your liking
 
 WiFiClient espClient;
 PubSubClient client(espClient);
-
-static unsigned long tempTime = 0;
-
-char probeName[24] = "Garage"; // Name Probe to your liking
 
 void setup() {
   Serial.begin(115200);
@@ -84,8 +81,8 @@ void setup() {
   client.setCallback(callback);
 
   //OneWire
-  DS18B20.begin();  // initialize the DS18B20 sensor
-  configTime(TZstr, "pool.ntp.org", "time.nist.gov"); //POSIX Timezone String to accomodate for daylight savings
+  DS18B20.begin();                                      // Initialize the DS18B20 sensor
+  configTime(TZstr, "pool.ntp.org", "time.nist.gov");   // Get time with timezone offset
 
   pinMode(flowPin1, INPUT_PULLUP);
   pinMode(flowPin2, INPUT_PULLUP);
@@ -123,7 +120,7 @@ void loop() {
     } else if (pouring1 && (now - lastPulseTime1 > POUR_TIMEOUT)) {
       if (pourPulses1 >= MIN_POUR_PULSES) {
         char payload[100];
-        snprintf(payload, sizeof(payload), "P;%d;%d;%lu", -1, tapNumber1, pourPulses1);
+        snprintf(payload, sizeof(payload), "P;%d;%d;%lu", -1, tapNumber1, pourPulses1);   // UserID is set to -1, Change as needed
         client.publish("rpints/pours", payload);
         Serial.print("Sent: ");
         Serial.println(payload);
@@ -151,7 +148,7 @@ void loop() {
     } else if (pouring2 && (now - lastPulseTime2 > POUR_TIMEOUT)) {
       if (pourPulses2 >= MIN_POUR_PULSES) {
         char payload[100];
-        snprintf(payload, sizeof(payload), "P;%d;%d;%lu", -1, tapNumber2, pourPulses2);
+        snprintf(payload, sizeof(payload), "P;%d;%d;%lu", -1, tapNumber2, pourPulses2);   // UserID is set to -1, Change as needed
         client.publish("rpints/pours", payload);
         Serial.print("Sent: ");
         Serial.println(payload);
@@ -169,20 +166,20 @@ void loop() {
     lastCheckTime = now;
   }
 
-  //OneWire
-    if (millis() - tempTime > 300000) {            // You can change the time in ms to broadcast temp
-        DS18B20.requestTemperatures();             // send the command to get temperatures
+  //Temperature tracking (every 15 mins)
+    if (millis() - tempTime > 900000) {                             // You can change the time in ms to broadcast temp
+        DS18B20.requestTemperatures();                              // send the command to get temperatures
      
-    temperature_C = DS18B20.getTempCByIndex(0);  // read temperature in °C
-    temperature_F = temperature_C * 9 / 5 + 32;  // convert °C to °F
+    temperature_C = DS18B20.getTempCByIndex(0);                     // read temperature in °C
+    temperature_F = temperature_C * 9 / 5 + 32;                     // convert °C to °F
 
     sendTemp(temperature_F, probeName, "F", getTimestamp()); 
 
     Serial.print("Temperature: ");
-    //Serial.print(temperature_C);  // print the temperature in °C
+    //Serial.print(temperature_C);                                  // print the temperature in °C
     //Serial.print("°C ");
-    //Serial.print("  ~  ");        // separator between °C and °F
-    Serial.print(temperature_F);  // print the temperature in °F
+    //Serial.print("  ~  ");                                        // separator between °C and °F
+    Serial.print(temperature_F);                                    // print the temperature in °F
     Serial.println("°F");
 
     tempTime = millis();
